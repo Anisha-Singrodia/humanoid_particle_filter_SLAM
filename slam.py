@@ -53,27 +53,11 @@ class map_t:
         careful to handle instances when x/y go outside the map bounds, you can use
         np.clip to handle these situations.
         """
-        #### TODO: XXXXXXXXXXX
-        # -20 to 20 i.e 0 to 40
-        x = np.clip(x, s.xmin, s.xmax)
-        y = np.clip(y, s.ymin, s.ymax)
-        output = np.zeros((2, len(x)))
-        cumm_arr = np.zeros((s.szx))
-        for i in range(1, s.szx):
-            # if i==0:
-            #     cumm_arr[i] = 40/s.szx
-            # else:
-            cumm_arr[i] = cumm_arr[i-1] + 40/s.szx
-        # print(cumm_arr)
-        for i in range(len(x)):
-            for j in range(s.szx):
-                if cumm_arr[j]-20 > x[i]:
-                    break
-            output[0, i] = j-1
-            for j in range(s.szx):
-                if cumm_arr[j]-20 > y[i]:
-                    break
-            output[1, i] = j-1
+        x_clipped = np.clip(x, s.xmin, s.xmax)
+        y_clipped = np.clip(y, s.ymin, s.ymax)
+        x_grid = np.ceil((x_clipped - s.xmin) / s.resolution).astype(np.int16)  # - 1
+        y_grid = np.ceil((y_clipped - s.ymin) / s.resolution).astype(np.int16)  # - 1
+        output = np.vstack((x_grid, y_grid))
         return output
 
 class slam_t:
@@ -97,6 +81,8 @@ class slam_t:
         # initialize the map
         s.map = map_t(resolution)
         s.particle_posn = None
+        s.robot_trajectory = None
+        s.odom = None
 
     def read_data(s, src_dir, idx=0, split='train'):
         """
@@ -149,22 +135,19 @@ class slam_t:
         particles with w = 1 x n array of weights and returns new particle
         locations (number of particles n remains the same) and their weights
         """
-        #### TODO: XXXXXXXXXXX
         n = p.shape[1]
-        
         cumm_w = np.zeros(w.shape)
         new_p = np.zeros(p.shape)
-        cumm_w[0,0] = w[0,0]
+        cumm_w[0] = w[0]
         for i in range(1,n):
-            cumm_w[0,i] = cumm_w[0,i-1] + w[0,i]
+            cumm_w[i] = cumm_w[i-1] + w[i]
         for i in range(n):
             rand_w = np.random.uniform(0,1)
             for j in range(n):
-                if cumm_w[0,j] > rand_w:
+                if cumm_w[j] > rand_w:
                     break
             new_p[:, i] = p[:, j-1]
-        w[0, :] = 1/n
-        print(new_p)
+        w[:] = 1/n
         return new_p, w
 
     @staticmethod
@@ -186,7 +169,6 @@ class slam_t:
         # the data
         d = np.clip(d, s.lidar_dmin, s.lidar_dmax)
         assert (d[:] >= s.lidar_dmin).all() and (d[:] <= s.lidar_dmax).all()
-        # print("assertion complete")
 
         # 1. from lidar distances to points in the LiDAR frame
         num_rays = len(angles)
@@ -195,6 +177,7 @@ class slam_t:
         coords[1, :] = d[:]*np.sin(angles[:])
         coords[2, :] = np.zeros_like(coords[0])
         coords[3, :] = np.ones_like(coords[0])
+
         # 2. from LiDAR frame to the body frame
         neck_rot = euler_to_se3(0, 0, neck_angle, np.array([0,0,0]))
         head_rot = euler_to_se3(0, head_angle, 0, np.array([0,0,0]))
@@ -204,7 +187,6 @@ class slam_t:
         coords_body = np.matmul(lidar_to_body, coords)
 
         # 3. from body frame to world frame
-
         body_to_world = euler_to_se3(0, 0, p[2], np.array([p[0], p[1], s.head_height]))
         coords_world = np.matmul(body_to_world, coords_body)
         return coords_world[0:2, :]
@@ -219,7 +201,6 @@ class slam_t:
 
         if t == 0:
             return np.zeros(3)
-        #### TODO: XXXXXXXXXXX
         idx_t = np.argmin(np.abs(s.joint['t']-t))
         idx_t = t
         pt = s.lidar[idx_t]['xyth']
@@ -232,15 +213,12 @@ class slam_t:
         """"
         Compute the control using get_control and perform that control on each particle to get the updated locations of the particles in the particle filter, remember to add noise using the smart_plus_2d function to each particle
         """
-        #### TODO: XXXXXXXXXXX
         control = s.get_control(t)
-        # print("control :", control)
         updated_p = np.zeros_like(s.p)
         p = s.p
         if s.n == 1:
             updated_p = updated_p.reshape((3,-1))
             p = p.reshape((3,-1))
-        # print(updated_p)
         for i in range(s.n):
             updated_p[:, i] = smart_plus_2d(p[:, i], control) + np.random.multivariate_normal(np.zeros((3,)), s.Q)
         if s.n == 1:
@@ -249,12 +227,10 @@ class slam_t:
 
     @staticmethod
     def update_weights(w, obs_logp):
-
         """
         Given the observation log-probability and the weights of particles w, calculate the
         new weights as discussed in the writeup. Make sure that the new weights are normalized
         """
-        #### TODO: XXXXXXXXXXX
         weights = np.log(w) + obs_logp
         weights = np.exp(weights - slam_t.log_sum_exp(weights))
         return weights
@@ -269,32 +245,6 @@ class slam_t:
         free_cells = np.unique(free_cells, return_index=False, axis=1)
         free_cells = free_cells.astype(int)
         return free_cells
-        
-
-
-        # free_cells = cur_loc
-        # x_s = cur_loc[0]
-        # y_s = cur_loc[1]
-
-        # for i in obs_loc.T:
-        #     x_o = i[0]
-        #     y_o = i[1]
-        #     dir = i - cur_loc.T
-        #     dist = int(np.linalg.norm(dir))
-        #     x = np.linspace(x_s, x_o, dist, endpoint=False, dtype=int)
-        #     y = np.linspace(y_s, y_o, dist, endpoint=False, dtype=int)
-        #     new_free_cells = np.vstack((x.T, y.T))
-        #     print("new_free_cells: ", new_free_cells.shape)
-        #     free_cells = np.hstack((free_cells, new_free_cells))
-        #     print("free_cells: ", free_cells.shape)
-        # free_cells = np.unique(free_cells, return_index=False, axis=1)
-
-        # return free_cells
-
-
-
-
-
 
     def observation_step(s, t):
         """
@@ -313,9 +263,15 @@ class slam_t:
         You should ensure that map.cells is recalculated at each iteration (it is simply the binarized version of log_odds). map.log_odds is of course maintained across iterations.
         """
         #### TODO: XXXXXXXXXXX
+        odo = (s.lidar[t]['xyth'][:2])
+        grid_odom = s.map.grid_cell_from_xy(np.array([odo[0]]), np.array([odo[1]]))
+        if s.odom is None:
+            s.odom = grid_odom
+        else:
+            s.odom = np.hstack((s.odom, grid_odom))
         joint_idx = s.find_joint_t_idx_from_lidar(t)
-        head_angle = s.joint['head_angles'][0][joint_idx]
-        neck_angle = s.joint['head_angles'][1][joint_idx]
+        head_angle = s.joint['head_angles'][1][joint_idx]
+        neck_angle = s.joint['head_angles'][0][joint_idx]
         obs_log_p = np.zeros(s.n)
         lidar_cells = np.zeros((s.n, 2, 1081))
         for i in range(s.n):
@@ -336,27 +292,18 @@ class slam_t:
         s.particle_posn = p_highest
         particle_cells = s.map.grid_cell_from_xy(np.array([p_highest[0]]), np.array([p_highest[1]]))
         s.particle_on_map = particle_cells
-        # print(particle_cells)
         occupied = lidar_cells[p_highest_weight]
-        # free = s.get_free_cells(occupied, particle_cells)
-        # print(occupied[0])
-        s.map.log_odds[:,:] += s.lidar_log_odds_free
+        free = s.get_free_cells(occupied, particle_cells)
         s.map.log_odds[occupied[0], occupied[1]] += s.lidar_log_odds_occ - s.lidar_log_odds_free
-        # s.map.log_odds[free[0], free[1]] += s.lidar_log_odds_free
+        s.map.log_odds[free[0], free[1]] += s.lidar_log_odds_free
         s.map.log_odds = np.clip(s.map.log_odds, -s.map.log_odds_max, s.map.log_odds_max)
-        # occ_cells = np.where(s.map.log_odds >= s.map.log_odds_thresh)
-        occ_cells = occupied
-        # free_cells = np.where(s.map.log_odds <= s.map.log_odds_free)
-        # free_cells = free
-        # print(free_cells)
-        # s.map.cells = 0*np.ones_like(s.map.cells)
-        # print(s.map.cells.shape)
-        s.map.cells[occ_cells[0], occ_cells[1]] = 1
-        # s.map.cells[free_cells[0], free_cells[1]] = 0
-        # pyplot.figure(figsize=(5,5))
-        # colormap = colors.ListedColormap(["grey","white","black"])
-        # pyplot.imshow(s.map.cells, cmap=colormap)
-        # pyplot.show()
+        s.map.cells = np.zeros_like(s.map.cells)
+        s.map.cells[s.map.log_odds >= s.map.log_odds_thresh] = 1
+        s.curr_part = p_highest
+        if t==0:
+            s.robot_trajectory = particle_cells.reshape((2, 1))
+        else:
+            s.robot_trajectory = np.hstack((s.robot_trajectory, particle_cells.reshape((2, 1))))
         
 
     def resample_particles(s):

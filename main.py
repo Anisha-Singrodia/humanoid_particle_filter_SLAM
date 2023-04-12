@@ -41,7 +41,6 @@ def run_dynamics_step(src_dir, log_dir, idx, split, t0=0, draw_fig=False):
     print('> Running prediction')
     t0 = 0
     T = len(d)
-    T = 100
     ps = deepcopy(slam.p)   # maintains all particles across all time steps
     plt.figure(2); plt.clf();
     ax = plt.subplot(111)
@@ -50,7 +49,6 @@ def run_dynamics_step(src_dir, log_dir, idx, split, t0=0, draw_fig=False):
     for t in tqdm.tqdm(range(t0+1,T)):
         slam.dynamics_step(t)
         ps = np.hstack((ps, slam.p.reshape((3,1))))
-        print(slam.p)
 
         if draw_fig:
             ax.clear()
@@ -110,14 +108,10 @@ def run_slam(src_dir, log_dir, idx, split):
     be something larger than the very small value we picked in run_dynamics_step function
     above.
     """
-    
 
     slam = slam_t(resolution=0.05, Q=np.diag([2e-4,2e-4,1e-4]))
     slam.read_data(src_dir, idx, split)
     T = len(slam.lidar)
-    # T = 500
-    print(T)
-    # exit()
 
     d = slam.lidar
     xyth = []
@@ -125,13 +119,6 @@ def run_slam(src_dir, log_dir, idx, split):
         xyth.append([p['xyth'][0], p['xyth'][1],p['xyth'][2]])
     xyth = np.array(xyth)
 
-    # plt.figure(1); plt.clf();
-    # plt.title('Trajectory using onboard odometry')
-    # plt.plot(xyth[:,0], xyth[:,1])
-    # logging.info('> Saving odometry plot in '+os.path.join(log_dir, 'slam_odometry_%s_%02d.jpg'%(split, idx)))
-    # plt.savefig(os.path.join(log_dir, 'slam_odometry_%s_%02d.jpg'%(split, idx)))
-
-    # raise NotImplementedError
     # again initialize the map to enable calculation of the observation logp in
     # future steps, this time we want to be more careful and initialize with the
     # correct lidar scan. First find the time t0 around which we have both LiDAR
@@ -145,7 +132,7 @@ def run_slam(src_dir, log_dir, idx, split):
     # function
     #### TODO: XXXXXXXXXXX
     print(slam.map.cells.shape)
-    n = 1
+    n = 20
     w = np.ones(n)/float(n)
     p = np.zeros((3,n), dtype=np.float64)
     slam.init_particles(n,p,w)
@@ -153,27 +140,39 @@ def run_slam(src_dir, log_dir, idx, split):
     ps = deepcopy(slam.p)
     slam.observation_step(0)
 
+    plt.figure(2); plt.clf();
     # slam, save data to be plotted later
     #### TODO: XXXXXXXXXXX
     for t in tqdm.tqdm(range(t0,T)):
         slam.dynamics_step(t)
-        ps = np.hstack((ps, slam.p.reshape((3,1))))
-        # print("ye", slam.p)
+        ps = np.hstack((ps, slam.p))
         slam.observation_step(t)
         slam.resample_particles()
     # exit()
-    plt.figure(2); plt.clf();
+    
     plt.plot(ps[0], ps[1], '*c')
     plt.title('Trajectory using PF')
-    logging.info('> Saving plot in '+os.path.join(log_dir, 'slam_dynamics_only_%s_%02d.jpg'%(split, idx)))
-    plt.savefig(os.path.join(log_dir, 'one_slam_dynamics_only_%s_%02d.jpg'%(split, idx)))
+    # logging.info('> Saving plot in '+os.path.join(log_dir, 'slam_dynamics_only_%s_%02d.jpg'%(split, idx)))
+    plt.savefig(os.path.join(log_dir, 'one1_slam_dynamics_only_%s_%02d.jpg'%(split, idx)))
 
     plt.figure(3); plt.clf();
     pyplot.figure(figsize=(5,5))
     colormap = colors.ListedColormap(["white", "black"])
-    pyplot.imshow(slam.map.cells, cmap=colormap)
-    # pyplot.show()
-    pyplot.savefig(os.path.join(log_dir, 'map_slam_dynamics_only_%s_%02d.jpg'%(split, idx)))
+    pyplot.imshow(slam.map.cells, cmap="twilight")
+    # pyplot.imshow(slam.map.log_odds)
+    d = slam.lidar
+    xyth = []
+    for p in d:
+        xyth.append([p['xyth'][0], p['xyth'][1],p['xyth'][2]])
+    xyth = np.array(xyth)
+    x_odom = slam.odom[0, :]
+    y_odom = slam.odom[1, :]
+    plt.plot(y_odom, x_odom, '*', markersize=1, color='blue')
+
+    x_trajectory = slam.robot_trajectory[0, :]
+    y_trajectory = slam.robot_trajectory[1, :]
+    plt.plot(y_trajectory, x_trajectory, '*', markersize=0.05, color='green')
+    pyplot.savefig(os.path.join(log_dir, 'map4_slam_dynamics_only_%s_%02d.jpg'%(split, idx)))
     
 
 
@@ -195,13 +194,13 @@ def main(src_dir, log_dir, idx, split, mode):
     random.seed(42)
 
     if mode == 'dynamics':
-        run_dynamics_step(src_dir, log_dir, idx, split)
+        run_dynamics_step(src_dir, log_dir, 3, split)
         sys.exit(0)
     elif mode == 'observation':
         run_observation_step(src_dir, log_dir, idx, split)
         sys.exit(0)
     else:
-        p = run_slam(src_dir, log_dir, idx, split)
+        p = run_slam(src_dir, log_dir, 3, split)
         return p
 
 if __name__=='__main__':
